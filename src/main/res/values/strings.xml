@@ -2010,4 +2010,6 @@
 	<string name="inline_media_description_gif">GIF</string>
 	<!-- Translators: very short label shown on top of animated images in comments -->
 	<string name="inline_media_gif_badge">GIF</string>
+	<!-- Translators: read out by screen readers for a video shown inside a comment -->
+	<string name="inline_media_description_video">Video</string>
 </resources>

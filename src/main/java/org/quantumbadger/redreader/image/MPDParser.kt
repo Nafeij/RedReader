@@ -27,11 +27,15 @@ data class MediaInfo(
 
 data class MPDReadResult(
     val video: MediaInfo? = null,
-    val audio: MediaInfo? = null
+    val audio: MediaInfo? = null,
+    // The smallest version of the video, for use as a preview
+    val lowestBandwidthVideo: MediaInfo? = null,
+    val durationMs: Long? = null
 )
 
 private data class MPD(
-    val periods: List<Period>
+    val periods: List<Period>,
+    val durationMs: Long?
 )
 
 private data class Period(
@@ -63,29 +67,52 @@ fun parseMPD(mpdContent: String): MPDReadResult {
     
     // Get first period
     val firstPeriod = mpd.periods.firstOrNull() ?: return MPDReadResult()
-    
+
     // Find video and audio adaptation sets
     val videoAdaptationSet = firstPeriod.adaptationSets.firstOrNull { it.contentType == "video" }
     val audioAdaptationSet = firstPeriod.adaptationSets.firstOrNull { it.contentType == "audio" }
-    
+
     val selectedVideo = videoAdaptationSet?.let { selectVideoRepresentation(it) }
     val selectedAudio = audioAdaptationSet?.let { selectAudioRepresentation(it) }
-    
-    return MPDReadResult(video = selectedVideo, audio = selectedAudio)
+    val lowestBandwidthVideo = videoAdaptationSet?.let { selectLowestBandwidthRepresentation(it) }
+
+    return MPDReadResult(
+        video = selectedVideo,
+        audio = selectedAudio,
+        lowestBandwidthVideo = lowestBandwidthVideo,
+        durationMs = mpd.durationMs
+    )
 }
 
 private fun parseMPDDocument(parser: XmlPullParser): MPD {
     val periods = mutableListOf<Period>()
-    
+    var durationMs: Long? = null
+
     var eventType = parser.eventType
     while (eventType != XmlPullParser.END_DOCUMENT) {
+        if (eventType == XmlPullParser.START_TAG && parser.name == "MPD") {
+            durationMs = parser.getAttributeValue(null, "mediaPresentationDuration")
+                ?.let(::parseDurationMs)
+        }
         if (eventType == XmlPullParser.START_TAG && parser.name == "Period") {
             periods.add(parsePeriod(parser))
         }
         eventType = parser.next()
     }
-    
-    return MPD(periods)
+
+    return MPD(periods, durationMs)
+}
+
+// An ISO 8601 duration, such as "PT1M2.5S"
+private val durationPattern = Regex("^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+(?:\\.\\d+)?)S)?$")
+
+private fun parseDurationMs(value: String): Long? {
+    val match = durationPattern.matchEntire(value.trim()) ?: return null
+    val (hours, minutes, seconds) = match.destructured
+
+    return ((hours.toLongOrNull() ?: 0) * 3_600_000
+            + (minutes.toLongOrNull() ?: 0) * 60_000
+            + ((seconds.toDoubleOrNull() ?: 0.0) * 1000).toLong())
 }
 
 private fun parsePeriod(parser: XmlPullParser): Period {
@@ -191,6 +218,18 @@ private fun selectVideoRepresentation(adaptationSet: AdaptationSet): MediaInfo? 
     
     val selected = validReps.sortedWith(comparator).firstOrNull() ?: return null
     
+    return MediaInfo(
+        filename = selected.baseURL!!,
+        width = selected.width,
+        height = selected.height
+    )
+}
+
+private fun selectLowestBandwidthRepresentation(adaptationSet: AdaptationSet): MediaInfo? {
+    val selected = adaptationSet.representations
+        .filter { it.baseURL != null }
+        .minByOrNull { it.bandwidth } ?: return null
+
     return MediaInfo(
         filename = selected.baseURL!!,
         width = selected.width,

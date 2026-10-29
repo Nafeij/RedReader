@@ -25,7 +25,7 @@ import org.quantumbadger.redreader.reddit.kthings.UrlEncodedString
 import java.util.regex.Pattern
 
 /**
- * An image or GIF which Reddit has attached to a comment.
+ * An image, GIF, or video which is attached to a comment.
  */
 data class InlineMedia(
 	val type: Type,
@@ -36,13 +36,17 @@ data class InlineMedia(
 	val height: Int,
 
 	// Still images to display the media with, in order of increasing width. For animated
-	// media, these are frames of the animation.
+	// media, these are frames of the animation. Empty for videos, whose still image is made
+	// from the video itself.
 	val stills: List<Still>,
 
-	val isSizeKnown: Boolean = true
+	val isSizeKnown: Boolean = true,
+
+	// For videos, the ID of the video on v.redd.it
+	val redditVideoId: String? = null
 ) {
 	enum class Type {
-		IMAGE, ANIMATED
+		IMAGE, ANIMATED, VIDEO
 	}
 
 	data class Still(
@@ -73,12 +77,17 @@ data class InlineMedia(
  * {"status": "invalid"}. If loadGiphyDirectly is set, these are instead displayed using a
  * still image from Giphy itself, which means a request to Giphy for every one displayed.
  *
+ * Videos have no metadata at all. They link to
+ * "https://reddit.com/link/<comment id>/video/<video id>/player", so if a commentId is given,
+ * links in that form which contain it are resolved.
+ *
  * Links to media which isn't attached to the comment aren't resolved, as there's no way to
  * know what they point to without downloading them.
  */
 class InlineMediaResolver @JvmOverloads constructor(
 	mediaMetadata: Map<UrlEncodedString, MaybeParseError<RedditMediaMetadata>>?,
-	private val loadGiphyDirectly: Boolean = false
+	private val loadGiphyDirectly: Boolean = false,
+	private val commentId: String? = null
 ) {
 	private val media = HashMap<String, InlineMedia>()
 	private val mediaByExternalUrl = HashMap<String, InlineMedia>()
@@ -104,7 +113,10 @@ class InlineMediaResolver @JvmOverloads constructor(
 		}
 	}
 
-	fun isEmpty() = media.isEmpty() && (!loadGiphyDirectly || attachedGiphyIds.isEmpty())
+	// Videos aren't listed in the metadata, so any comment might have one
+	fun isEmpty() = media.isEmpty()
+			&& (!loadGiphyDirectly || attachedGiphyIds.isEmpty())
+			&& commentId == null
 
 	/**
 	 * Returns null if the link doesn't point to media attached to this comment.
@@ -132,10 +144,32 @@ class InlineMediaResolver @JvmOverloads constructor(
 			}
 		}
 
+		commentVideoPattern.matcher(href).let {
+			if (it.matches() && commentId != null && it.group(1) == commentId) {
+				return redditVideo(it.group(2)!!)
+			}
+		}
+
 		return null
 	}
 
 	companion object {
+
+		private val commentVideoPattern: Pattern = Pattern.compile(
+			"^https?://(?:[\\w-]+\\.)?reddit\\.com/link/(\\w+)/video/(\\w+)/player/?(?:[?#].*)?$"
+		)
+
+		/**
+		 * A video on v.redd.it. Its size isn't known until its still image has been made.
+		 */
+		private fun redditVideo(videoId: String) = InlineMedia(
+			type = InlineMedia.Type.VIDEO,
+			width = 320,
+			height = 180,
+			stills = emptyList(),
+			isSizeKnown = false,
+			redditVideoId = videoId
+		)
 
 		private val redditMediaPattern: Pattern = Pattern.compile(
 			"^https?://(?:preview|i)\\.redd\\.it/(\\w+)\\.\\w+(?:[?#].*)?$"

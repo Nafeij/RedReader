@@ -238,7 +238,8 @@ class OKHTTPBackend private constructor() : HTTPBackend() {
 					val status = response.code
 					val body = response.body
 
-					if (status == 200 || status == 202) {
+					// 206 is only sent in response to a request with a Range header
+					if (status == 200 || status == 202 || status == 206) {
 
 						val bodyStream: InputStream?
 						val bodyLength: Long?

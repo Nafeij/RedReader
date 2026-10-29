@@ -25,6 +25,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -41,9 +42,10 @@ import org.quantumbadger.redreader.reddit.prepared.InlineMedia;
 import org.quantumbadger.redreader.reddit.prepared.InlinePreviewLoader;
 import org.quantumbadger.redreader.reddit.prepared.bodytext.BodyElementInlineMedia;
 import org.quantumbadger.redreader.views.liststatus.ErrorView;
+import org.quantumbadger.redreader.views.video.ExoPlayerWrapperView;
 
 /**
- * Displays an image, or the first frame of a GIF, which is attached to a comment.
+ * Displays an image, or the first frame of a GIF or video, which is attached to a comment.
  *
  * <p>The media is displayed at its natural size, treating each of its pixels as one dp, so
  * that small media such as GIFs from Giphy aren't stretched to the full width of the
@@ -57,12 +59,17 @@ import org.quantumbadger.redreader.views.liststatus.ErrorView;
 public final class InlineMediaView extends FrameLayout implements InlinePreviewLoader.Listener {
 
 	@NonNull private final BaseActivity mActivity;
+	@NonNull private final BodyElementInlineMedia mElement;
 	@NonNull private final InlineMedia mMedia;
 	@NonNull private final InlinePreviewLoader mLoader;
 
 	@NonNull private final ImageView mImageView;
 	@NonNull private final LoadingSpinnerView mLoadingSpinner;
-	@Nullable private final TextView mGifBadge;
+
+	// Shows "GIF" for animated media, or the length of a video
+	@Nullable private final TextView mBadge;
+
+	@Nullable private final View mPlayIcon;
 
 	@Nullable private ErrorView mErrorView;
 	private boolean mFailed;
@@ -91,6 +98,7 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 		super(activity);
 
 		mActivity = activity;
+		mElement = element;
 		mMedia = element.getMedia();
 		mLoader = element.getLoader(activity);
 
@@ -105,10 +113,25 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 				LayoutParams.MATCH_PARENT,
 				LayoutParams.MATCH_PARENT));
 
-		final boolean isAnimated = mMedia.getType() == InlineMedia.Type.ANIMATED;
+		final InlineMedia.Type type = mMedia.getType();
 
-		if(isAnimated) {
-			mGifBadge = createGifBadge(activity);
+		if(type == InlineMedia.Type.VIDEO) {
+			mPlayIcon = createPlayIcon(activity);
+			addView(mPlayIcon, new LayoutParams(
+					LayoutParams.WRAP_CONTENT,
+					LayoutParams.WRAP_CONTENT,
+					Gravity.CENTER));
+
+		} else {
+			mPlayIcon = null;
+		}
+
+		if(type == InlineMedia.Type.ANIMATED || type == InlineMedia.Type.VIDEO) {
+			mBadge = createBadge(activity);
+
+			if(type == InlineMedia.Type.ANIMATED) {
+				mBadge.setText(R.string.inline_media_gif_badge);
+			}
 
 			final LayoutParams badgeLayoutParams = new LayoutParams(
 					LayoutParams.WRAP_CONTENT,
@@ -122,20 +145,22 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 					badgeMarginPx,
 					badgeMarginPx);
 
-			addView(mGifBadge, badgeLayoutParams);
+			addView(mBadge, badgeLayoutParams);
 
 		} else {
-			mGifBadge = null;
+			mBadge = null;
 		}
 
 		final String caption = element.getCaption();
 
 		if(caption != null) {
 			setContentDescription(caption);
+		} else if(type == InlineMedia.Type.VIDEO) {
+			setContentDescription(activity.getString(R.string.inline_media_description_video));
+		} else if(type == InlineMedia.Type.ANIMATED) {
+			setContentDescription(activity.getString(R.string.inline_media_description_gif));
 		} else {
-			setContentDescription(activity.getString(isAnimated
-					? R.string.inline_media_description_gif
-					: R.string.inline_media_description_image));
+			setContentDescription(activity.getString(R.string.inline_media_description_image));
 		}
 
 		setOnClickListener(v -> LinkHandler.onLinkClicked(activity, element.getUrl()));
@@ -147,11 +172,10 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 	}
 
 	@NonNull
-	private static TextView createGifBadge(@NonNull final Context context) {
+	private static TextView createBadge(@NonNull final Context context) {
 
 		final TextView badge = new TextView(context);
 
-		badge.setText(R.string.inline_media_gif_badge);
 		badge.setTextColor(Color.WHITE);
 		badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
 		badge.setTypeface(Typeface.DEFAULT_BOLD);
@@ -169,10 +193,36 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 		background.setCornerRadius(General.dpToPixels(context, 3));
 		badge.setBackground(background);
 
-		// The view as a whole already describes itself as a GIF
+		// The view as a whole already describes itself as a GIF or video
 		badge.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
 
 		return badge;
+	}
+
+	/**
+	 * The same play icon as is shown over the previews of videos in the post list.
+	 */
+	@NonNull
+	private static View createPlayIcon(@NonNull final Context context) {
+
+		final FrameLayout playIcon = new FrameLayout(context);
+
+		for(final int drawable : new int[] {
+				R.drawable.play_icon_background_circle_dark,
+				R.drawable.icon_play}) {
+
+			final ImageView imageView = new ImageView(context);
+			imageView.setImageResource(drawable);
+
+			playIcon.addView(imageView, new LayoutParams(
+					LayoutParams.WRAP_CONTENT,
+					LayoutParams.WRAP_CONTENT,
+					Gravity.CENTER));
+		}
+
+		playIcon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+
+		return playIcon;
 	}
 
 	@Override
@@ -208,7 +258,6 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 				mImageView.setImageBitmap(loader.getBitmap());
 				mImageView.setVisibility(VISIBLE);
 				mLoadingSpinner.setVisibility(GONE);
-				setGifBadgeVisibility(VISIBLE);
 				break;
 
 			case FAILED:
@@ -217,7 +266,6 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 				mImageView.setImageBitmap(null);
 				mImageView.setVisibility(GONE);
 				mLoadingSpinner.setVisibility(GONE);
-				setGifBadgeVisibility(GONE);
 
 				final RRError error = loader.getError();
 
@@ -237,16 +285,40 @@ public final class InlineMediaView extends FrameLayout implements InlinePreviewL
 				mImageView.setImageBitmap(null);
 				mImageView.setVisibility(VISIBLE);
 				mLoadingSpinner.setVisibility(VISIBLE);
-				setGifBadgeVisibility(VISIBLE);
 				break;
 		}
+
+		updateOverlays(loader.getState());
 
 		requestLayout();
 	}
 
-	private void setGifBadgeVisibility(final int visibility) {
-		if(mGifBadge != null) {
-			mGifBadge.setVisibility(visibility);
+	private void updateOverlays(@NonNull final InlinePreviewLoader.State state) {
+
+		final boolean loaded = state == InlinePreviewLoader.State.LOADED;
+
+		if(mPlayIcon != null) {
+			mPlayIcon.setVisibility(loaded ? VISIBLE : GONE);
+		}
+
+		if(mBadge == null) {
+			return;
+		}
+
+		if(mMedia.getType() == InlineMedia.Type.VIDEO) {
+
+			// The length of a video is only known once its still image has loaded
+			final Long durationMs = mElement.getVideoDurationMs();
+
+			if(loaded && durationMs != null) {
+				mBadge.setText(ExoPlayerWrapperView.msToMinutesAndSecondsString(durationMs));
+				mBadge.setVisibility(VISIBLE);
+			} else {
+				mBadge.setVisibility(GONE);
+			}
+
+		} else {
+			mBadge.setVisibility(state == InlinePreviewLoader.State.FAILED ? GONE : VISIBLE);
 		}
 	}
 

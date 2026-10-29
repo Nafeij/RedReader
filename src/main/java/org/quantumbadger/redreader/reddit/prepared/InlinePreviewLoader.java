@@ -107,6 +107,10 @@ public final class InlinePreviewLoader {
 		public final int boxWidthPx;
 		public final int boxHeightPx;
 
+		// If not null, used to produce the preview from the data at the URL, rather than
+		// decoding it as an image
+		@Nullable public final Decoder decoder;
+
 		public PreviewDetails(
 				@NonNull final UriString url,
 				final int imageWidthPx,
@@ -114,12 +118,36 @@ public final class InlinePreviewLoader {
 				final int boxWidthPx,
 				final int boxHeightPx) {
 
+			this(url, imageWidthPx, imageHeightPx, boxWidthPx, boxHeightPx, null);
+		}
+
+		public PreviewDetails(
+				@NonNull final UriString url,
+				final int imageWidthPx,
+				final int imageHeightPx,
+				final int boxWidthPx,
+				final int boxHeightPx,
+				@Nullable final Decoder decoder) {
+
 			this.url = url;
 			this.imageWidthPx = imageWidthPx;
 			this.imageHeightPx = imageHeightPx;
 			this.boxWidthPx = boxWidthPx;
 			this.boxHeightPx = boxHeightPx;
+			this.decoder = decoder;
 		}
+	}
+
+	public interface Decoder {
+		/**
+		 * Produces the preview from the data at the URL. This is called on its own thread, so
+		 * it may make further network requests.
+		 */
+		@NonNull
+		Bitmap decode(
+				@NonNull SeekableInputStream input,
+				int maxWidthPx,
+				int maxHeightPx) throws IOException;
 	}
 
 	/**
@@ -410,14 +438,33 @@ public final class InlinePreviewLoader {
 				final boolean fromCache,
 				@Nullable final String mimetype) {
 
+			if(mDetails.decoder != null) {
+				// The decoder may make further network requests, so it shouldn't hold up the
+				// thread which delivered the data
+				new Thread(() -> decode(streamFactory), "Inline preview decoder").start();
+			} else {
+				decode(streamFactory);
+			}
+		}
+
+		private void decode(
+				@NonNull final GenericFactory<SeekableInputStream, IOException> streamFactory) {
+
 			final Bitmap bitmap;
 
 			try(SeekableInputStream is = streamFactory.create()) {
 
-				bitmap = ScaledBitmapDecoder.decodeToFitWithin(
-						is,
-						mDetails.boxWidthPx,
-						mDetails.boxHeightPx);
+				if(mDetails.decoder != null) {
+					bitmap = mDetails.decoder.decode(
+							is,
+							mDetails.boxWidthPx,
+							mDetails.boxHeightPx);
+				} else {
+					bitmap = ScaledBitmapDecoder.decodeToFitWithin(
+							is,
+							mDetails.boxWidthPx,
+							mDetails.boxHeightPx);
+				}
 
 			} catch(final Throwable t) {
 

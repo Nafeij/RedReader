@@ -5,6 +5,7 @@ Fixed issue where post titles are cut off
 Scrolling performance optimization
 Reduced memory usage and allocation count
 Videos embedded in comments now open in the video player, rather than the browser
+Previews of videos embedded in comments, with the option to show images inline in comments
 Assorted minor bugfixes
 
 119/1.27

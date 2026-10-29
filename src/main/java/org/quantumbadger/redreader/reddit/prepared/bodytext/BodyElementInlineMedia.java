@@ -17,6 +17,7 @@
 
 package org.quantumbadger.redreader.reddit.prepared.bodytext;
 
+import android.content.Context;
 import android.graphics.Rect;
 import android.view.View;
 
@@ -28,13 +29,16 @@ import org.quantumbadger.redreader.activities.BaseActivity;
 import org.quantumbadger.redreader.common.DisplayUtils;
 import org.quantumbadger.redreader.common.General;
 import org.quantumbadger.redreader.common.UriString;
+import org.quantumbadger.redreader.image.RedditVideoFirstFrame;
 import org.quantumbadger.redreader.reddit.prepared.InlineMedia;
 import org.quantumbadger.redreader.reddit.prepared.InlinePreviewLoader;
 import org.quantumbadger.redreader.views.InlineMediaView;
 
+import java.util.Objects;
+
 /**
- * An image, or the first frame of a GIF, which is attached to a comment and displayed in its
- * body.
+ * An image, or the first frame of a GIF or video, which is attached to a comment and displayed
+ * in its body.
  *
  * <p>The views for a comment's body are regenerated every time the comment is bound, so the
  * image is held by the loader here rather than by the view.
@@ -49,6 +53,9 @@ public class BodyElementInlineMedia extends BodyElement {
 	@Nullable private final String mCaption;
 
 	@Nullable private InlinePreviewLoader mLoader;
+
+	// For videos, set on a background thread once the video's details have been downloaded
+	@Nullable private volatile Long mVideoDurationMs;
 
 	public BodyElementInlineMedia(
 			@NonNull final UriString url,
@@ -80,6 +87,14 @@ public class BodyElementInlineMedia extends BodyElement {
 		return mCaption;
 	}
 
+	/**
+	 * For videos, the length of the video, once its still image has loaded.
+	 */
+	@Nullable
+	public Long getVideoDurationMs() {
+		return mVideoDurationMs;
+	}
+
 	@NonNull
 	@UiThread
 	public InlinePreviewLoader getLoader(@NonNull final BaseActivity activity) {
@@ -99,6 +114,12 @@ public class BodyElementInlineMedia extends BodyElement {
 
 		final Rect windowVisibleDisplayFrame
 				= DisplayUtils.getWindowVisibleDisplayFrame(activity);
+
+		if(mMedia.getType() == InlineMedia.Type.VIDEO) {
+			return calculateVideoPreviewDetails(
+					activity.getApplicationContext(),
+					windowVisibleDisplayFrame);
+		}
 
 		// This is an estimate of the width the media is displayed at (see InlineMediaView),
 		// as the comment is narrower than the window when it is nested, or in the two pane
@@ -125,6 +146,38 @@ public class BodyElementInlineMedia extends BodyElement {
 				mMedia.getHeight(),
 				boxWidth,
 				boxHeight);
+	}
+
+	/**
+	 * The still image of a video is its first frame, made from the start of the smallest
+	 * version of the video. This is small enough not to need scaling down in practice, so
+	 * the box it's decoded within is just the largest area the media can take up.
+	 */
+	@NonNull
+	private InlinePreviewLoader.PreviewDetails calculateVideoPreviewDetails(
+			@NonNull final Context context,
+			@NonNull final Rect windowVisibleDisplayFrame) {
+
+		final String videoId = Objects.requireNonNull(mMedia.getRedditVideoId());
+
+		return new InlinePreviewLoader.PreviewDetails(
+				RedditVideoFirstFrame.playlistUrl(videoId),
+				mMedia.getWidth(),
+				mMedia.getHeight(),
+				Math.max(1, Math.min(MAX_DECODE_WIDTH_PX, windowVisibleDisplayFrame.width())),
+				InlineMediaView.getMaxHeightPx(windowVisibleDisplayFrame.height()),
+				(input, maxWidthPx, maxHeightPx) -> {
+
+					final RedditVideoFirstFrame.Frame frame = RedditVideoFirstFrame.decode(
+							context,
+							videoId,
+							input,
+							maxWidthPx,
+							maxHeightPx);
+
+					mVideoDurationMs = frame.durationMs;
+					return frame.bitmap;
+				});
 	}
 
 	@Override

@@ -93,7 +93,8 @@ public class RedditParsedComment implements RedditThingWithIdAndType {
 		if(showInlineMedia) {
 			final InlineMediaResolver resolver = new InlineMediaResolver(
 					comment.getMedia_metadata(),
-					PrefsUtility.images_inline_comment_media_giphy());
+					PrefsUtility.images_inline_comment_media_giphy(),
+					comment.getIdAlone());
 
 			if(!resolver.isEmpty()) {
 				inlineMedia = new InlineMediaCollector(resolver);

@@ -22,6 +22,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.quantumbadger.redreader.reddit.prepared.InlineMedia
 import org.quantumbadger.redreader.reddit.prepared.InlineMediaResolver
 import org.quantumbadger.redreader.reddit.prepared.bodytext.BodyElement
 import org.quantumbadger.redreader.reddit.prepared.bodytext.BodyElementInlineMedia
@@ -179,5 +180,24 @@ class InlineMediaHtmlTest {
 
 		assertEquals(0, result.mediaCount)
 		assertEquals(1, result.linkButtonCount)
+	}
+
+	@Test
+	fun videoReplacesLink() {
+
+		// The body of a real comment, captured on 2026-10-29
+		val href = "https://reddit.com/link/pfe543d/video/46b22pf54zuh1/player"
+		val body = "<p>Bombs!</p>\n\n<p><a href=\"$href\">$href</a></p>"
+
+		val result = parse(body, resolver = InlineMediaResolver(null, commentId = "pfe543d"))
+		val withoutVideo = parse("<p>Bombs!</p>\n\n")
+
+		assertEquals(1, result.mediaCount)
+		assertEquals(0, result.linkButtonCount)
+		assertEquals(withoutVideo.textCount, result.textCount)
+
+		val media = result.collector!!.generated.single()
+		assertEquals(InlineMedia.Type.VIDEO, media.media.type)
+		assertEquals(href, media.url.value)
 	}
 }

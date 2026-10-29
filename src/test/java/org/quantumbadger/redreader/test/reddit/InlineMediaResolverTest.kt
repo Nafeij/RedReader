@@ -265,6 +265,35 @@ class InlineMediaResolverTest {
 	}
 
 	@Test
+	fun videoEmbeddedInComment() {
+
+		// Captured from a comment's JSON on 2026-10-29: videos have no metadata at all, and the
+		// link to the video includes the ID of the comment
+		val resolver = InlineMediaResolver(null, commentId = "pfe543d")
+
+		assertFalse(resolver.isEmpty())
+
+		val media = resolver.resolve("https://reddit.com/link/pfe543d/video/46b22pf54zuh1/player")
+
+		assertNotNull(media)
+		media!!
+
+		assertEquals(InlineMedia.Type.VIDEO, media.type)
+		assertEquals("46b22pf54zuh1", media.redditVideoId)
+		assertFalse(media.isSizeKnown)
+		assertTrue(media.stills.isEmpty())
+	}
+
+	@Test
+	fun videoEmbeddedInOtherComment() {
+
+		val href = "https://reddit.com/link/pfe543d/video/46b22pf54zuh1/player"
+
+		assertNull(InlineMediaResolver(null, commentId = "abc1234").resolve(href))
+		assertNull(InlineMediaResolver(null).resolve(href))
+	}
+
+	@Test
 	fun unsupportedMediaTypes() {
 
 		// Shape from other clients' type definitions: comment videos have no "s" field,
