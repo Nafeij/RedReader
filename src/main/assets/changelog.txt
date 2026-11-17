@@ -6,6 +6,7 @@ Scrolling performance optimization
 Reduced memory usage and allocation count
 Videos embedded in comments now open in the video player, rather than the browser
 Previews of videos embedded in comments, with the option to show images inline in comments
+More of a user's comments are loaded when scrolling to the end of the list
 Assorted minor bugfixes
 
 119/1.27

@@ -121,6 +121,11 @@ public class CommentListingFragment extends RRFragment
 	private int mLastListWidth = -1;
 	private int mLastListHeight = -1;
 
+	// For listings which continue on further pages, such as a user's comments: the value to
+	// request the next page with, or null if there are no more pages
+	@Nullable private String mNextPageAfter = null;
+	private boolean mNextPageRequested = false;
+
 	public CommentListingFragment(
 			final AppCompatActivity parent,
 			final Bundle savedInstanceState,
@@ -192,7 +197,8 @@ public class CommentListingFragment extends RRFragment
 		mRecyclerView.setItemAnimator(null);
 
 		// Images in comments are loaded while the comment is near the visible area of the
-		// list, and released once it moves away
+		// list, and released once it moves away. This is also called when the visible items
+		// change after a layout.
 		mRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
 			@Override
 			public void onScrolled(
@@ -200,6 +206,7 @@ public class CommentListingFragment extends RRFragment
 					final int dx,
 					final int dy) {
 				mCommentListingManager.updatePreloadWindow();
+				onLoadMoreItemsCheck();
 			}
 		});
 
@@ -433,12 +440,59 @@ public class CommentListingFragment extends RRFragment
 					mUrlsToDownload.getFirst(),
 					mAllUrls.size() == 1,
 					mUrlsToDownload.getFirst(),
+					false,
 					mUser,
 					mSession,
 					mDownloadStrategy,
 					this
 			);
 		}
+	}
+
+	private boolean isPagedListing() {
+		return mAllUrls.size() == 1
+				&& mAllUrls.get(0).pathType() == RedditURLParser.USER_COMMENT_LISTING_URL;
+	}
+
+	private void onLoadMoreItemsCheck() {
+
+		General.checkThisIsUIThread();
+
+		if(mNextPageAfter == null || mNextPageRequested) {
+			return;
+		}
+
+		final LinearLayoutManager layoutManager
+				= (LinearLayoutManager)mRecyclerView.getLayoutManager();
+
+		final boolean nearEnd = layoutManager.getItemCount()
+				- layoutManager.findLastVisibleItemPosition() < 20;
+
+		// When restoring the scroll position, it may be on a later page
+		final boolean restoringPosition = mPreviousFirstVisibleItemPosition != null
+				&& layoutManager.getItemCount() <= mPreviousFirstVisibleItemPosition;
+
+		if(!nearEnd && !restoringPosition) {
+			return;
+		}
+
+		mNextPageRequested = true;
+		mCommentListingManager.setLoadingVisible(true);
+
+		new CommentListingRequest(
+				getActivity(),
+				this,
+				(BaseActivity)getActivity(),
+				mAllUrls.get(0),
+				false,
+				mAllUrls.get(0).asUserCommentListURL().after(mNextPageAfter),
+				true,
+				mUser,
+				mSession,
+				// The pages are fetched using the ID of the last comment, so a cached page
+				// still follows on from the comments above it
+				DownloadStrategyIfNotCached.INSTANCE,
+				this);
 	}
 
 	@Override
@@ -646,7 +700,8 @@ public class CommentListingFragment extends RRFragment
 
 	@Override
 	public void onCommentListingRequestAllItemsDownloaded(
-			final ArrayList<RedditCommentListItem> items) {
+			final ArrayList<RedditCommentListItem> items,
+			@Nullable final String after) {
 
 		mCommentListingManager.addComments(items);
 
@@ -659,7 +714,13 @@ public class CommentListingFragment extends RRFragment
 			mFloatingToolbar.startAnimation(animation);
 		}
 
-		mUrlsToDownload.removeFirst();
+		if(mNextPageRequested) {
+			mNextPageRequested = false;
+		} else {
+			mUrlsToDownload.removeFirst();
+		}
+
+		mNextPageAfter = isPagedListing() ? after : null;
 
 		final LinearLayoutManager layoutManager
 				= (LinearLayoutManager)mRecyclerView.getLayoutManager();
@@ -674,7 +735,14 @@ public class CommentListingFragment extends RRFragment
 			mPreviousFirstVisibleItemPosition = null;
 		}
 
-		if(mUrlsToDownload.isEmpty()) {
+		if(!mUrlsToDownload.isEmpty()) {
+			makeNextRequest(getActivity());
+
+		} else if(mNextPageAfter != null) {
+			mCommentListingManager.setLoadingVisible(false);
+			onLoadMoreItemsCheck();
+
+		} else {
 
 			if(mCommentListingManager.getCommentCount() == 0) {
 
@@ -702,9 +770,6 @@ public class CommentListingFragment extends RRFragment
 			}
 
 			mCommentListingManager.setLoadingVisible(false);
-
-		} else {
-			makeNextRequest(getActivity());
 		}
 	}
 
